@@ -23,6 +23,7 @@
 #include <cutils/log.h>
 #include <hardware/gralloc1.h>
 #include <hardware/gralloc.h>
+#include <cinttypes>
 
 #define GRALLOC1_FUNCTION_PERFORM 0x00001000
 
@@ -75,13 +76,13 @@ struct private_handle_t : public native_handle_t {
   unsigned int size;
   unsigned int offset;
   unsigned int offset_metadata;
-  unsigned int fb_id;
   uint64_t base                            __attribute__((aligned(8)));
   uint64_t base_metadata                   __attribute__((aligned(8)));
   uint64_t gpuaddr                         __attribute__((aligned(8)));
   uint64_t id                              __attribute__((aligned(8)));
   gralloc1_producer_usage_t producer_usage __attribute__((aligned(8)));
   gralloc1_consumer_usage_t consumer_usage __attribute__((aligned(8)));
+  unsigned int layer_count;
 
   static const int kNumFds = 2;
   static const int kMagic = 'gmsm';
@@ -116,13 +117,13 @@ struct private_handle_t : public native_handle_t {
         size(size),
         offset(0),
         offset_metadata(0),
-        fb_id(0),
         base(0),
         base_metadata(0),
         gpuaddr(0),
         id(0),
         producer_usage(prod_usage),
-        consumer_usage(cons_usage) {
+        consumer_usage(cons_usage),
+        layer_count(1) {
     version = static_cast<int>(sizeof(native_handle));
     numInts = NumInts();
     numFds = kNumFds;
@@ -160,11 +161,21 @@ struct private_handle_t : public native_handle_t {
     return 0;
   }
 
+  static void Dump(const private_handle_t *hnd) {
+    ALOGD("handle id:%" PRIu64 " wxh:%dx%d uwxuh:%dx%d size: %d fd:%d fd_meta:%d flags:0x%x "
+          "prod_usage:0x%" PRIx64" cons_usage:0x%" PRIx64 " format:0x%x layer_count: %d",
+          hnd->id, hnd->width, hnd->height, hnd->unaligned_width, hnd->unaligned_height, hnd->size,
+          hnd->fd, hnd->fd_metadata, hnd->flags, hnd->producer_usage, hnd->consumer_usage,
+          hnd->format, hnd->layer_count);
+  }
+
   int GetUnalignedWidth() const { return unaligned_width; }
 
   int GetUnalignedHeight() const { return unaligned_height; }
 
   int GetColorFormat() const { return format; }
+
+  unsigned int GetLayerCount() const { return layer_count; }
 
   int GetStride() const {
     // In handle we currently store aligned width after allocation.

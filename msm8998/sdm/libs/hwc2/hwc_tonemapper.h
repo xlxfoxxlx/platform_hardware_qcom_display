@@ -37,6 +37,7 @@
 
 #include <core/layer_stack.h>
 #include <utils/sys.h>
+#include <utils/sync_task.h>
 #include <vector>
 #include "hwc_buffer_sync_handler.h"
 #include "hwc_buffer_allocator.h"
@@ -44,6 +45,22 @@
 class Tonemapper;
 
 namespace sdm {
+
+enum class ToneMapTaskCode : int32_t {
+  kCodeGetInstance,
+  kCodeBlit,
+  kCodeDestroy,
+};
+
+struct ToneMapGetInstanceContext : public SyncTask<ToneMapTaskCode>::TaskContext {
+  Layer *layer = nullptr;
+};
+
+struct ToneMapBlitContext : public SyncTask<ToneMapTaskCode>::TaskContext {
+  Layer *layer = nullptr;
+  int merged_fd = -1;
+  int fence_fd = -1;
+};
 
 struct ToneMapConfig {
   int type = 0;
@@ -53,21 +70,28 @@ struct ToneMapConfig {
   bool secure = false;
 };
 
-class ToneMapSession {
+class ToneMapSession : public SyncTask<ToneMapTaskCode>::TaskHandler {
  public:
+  explicit ToneMapSession(HWCBufferAllocator *buffer_allocator);
   ~ToneMapSession();
-  DisplayError AllocateIntermediateBuffers(int width, int height, int format, int usage);
+  DisplayError AllocateIntermediateBuffers(const Layer *layer);
   void FreeIntermediateBuffers();
   void UpdateBuffer(int acquire_fence, LayerBuffer *buffer);
   void SetReleaseFence(int fd);
   void SetToneMapConfig(Layer *layer);
   bool IsSameToneMapConfig(Layer *layer);
 
+  // TaskHandler methods implementation.
+  virtual void OnTask(const ToneMapTaskCode &task_code,
+                      SyncTask<ToneMapTaskCode>::TaskContext *task_context);
+
   static const uint8_t kNumIntermediateBuffers = 2;
-  Tonemapper *gpu_tone_mapper_ = NULL;
+  SyncTask<ToneMapTaskCode> tone_map_task_;
+  Tonemapper *gpu_tone_mapper_ = nullptr;
+  HWCBufferAllocator *buffer_allocator_ = nullptr;
   ToneMapConfig tone_map_config_ = {};
   uint8_t current_buffer_index_ = 0;
-  private_handle_t *intermediate_buffer_[kNumIntermediateBuffers] = {NULL, NULL};
+  std::vector<BufferInfo> buffer_info_ = {};
   int release_fence_fd_[kNumIntermediateBuffers] = {-1, -1};
   bool acquired_ = false;
   int layer_index_ = -1;
@@ -75,23 +99,23 @@ class ToneMapSession {
 
 class HWCToneMapper {
  public:
-  HWCToneMapper() {}
+  explicit HWCToneMapper(HWCBufferAllocator *allocator) : buffer_allocator_(allocator) {}
   ~HWCToneMapper() {}
 
-  int HandleToneMap(hwc_display_contents_1_t *content_list, LayerStack *layer_stack);
+  int HandleToneMap(LayerStack *layer_stack);
   bool IsActive() { return !tone_map_sessions_.empty(); }
   void PostCommit(LayerStack *layer_stack);
   void SetFrameDumpConfig(uint32_t count);
   void Terminate();
 
  private:
-  void ToneMap(hwc_layer_1_t *hwc_layer, Layer *layer, ToneMapSession *session);
+  void ToneMap(Layer *layer, ToneMapSession *session);
   DisplayError AcquireToneMapSession(Layer *layer, uint32_t *session_index);
   void DumpToneMapOutput(ToneMapSession *session, int *acquire_fence);
 
   std::vector<ToneMapSession*> tone_map_sessions_;
   HWCBufferSyncHandler buffer_sync_handler_ = {};
-  HWCBufferAllocator buffer_allocator_ = {};
+  HWCBufferAllocator *buffer_allocator_ = nullptr;
   uint32_t dump_frame_count_ = 0;
   uint32_t dump_frame_index_ = 0;
   uint32_t fb_session_index_ = 0;

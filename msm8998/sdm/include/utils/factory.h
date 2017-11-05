@@ -27,69 +27,37 @@
 * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifndef __DRM_MASTER_H__
-#define __DRM_MASTER_H__
+#ifndef __FACTORY_H__
+#define __FACTORY_H__
 
-#include <mutex>
+#include <utility>
+#include <map>
+#include <string>
 
-#include "drm_logger.h"
+namespace sdm {
 
-namespace drm_utils {
-
-struct DRMBuffer {
-  int fd = -1;
-  uint32_t width = 0;
-  uint32_t height = 0;
-  uint32_t drm_format = 0;
-  uint64_t drm_format_modifier = 0;
-  uint32_t stride[4] = {};
-  uint32_t offset[4] = {};
-  uint32_t num_planes = 1;
-};
-
-class DRMMaster {
+template <class Creator>
+class Factory {
  public:
-  ~DRMMaster();
-  /* Converts from ION fd --> Prime Handle --> FB_ID.
-   * Input:
-   *   drm_buffer: A DRMBuffer obj that packages description of buffer
-   * Output:
-   *   fb_id: Pointer to store DRM framebuffer id into
-   * Returns:
-   *   ioctl error code
-   */
-  int CreateFbId(const DRMBuffer &drm_buffer, uint32_t *gem_handle, uint32_t *fb_id);
-  /* Removes the fb_id from DRM
-   * Input:
-   *   fb_id: DRM FB to be removed
-   * Returns:
-   *   ioctl error code
-   */
-  int RemoveFbId(uint32_t gem_handle, uint32_t fb_id);
-  /* Poplulates master DRM fd
-   * Input:
-   *   fd: Pointer to store master fd into
-   */
-  void GetHandle(int *fd) { *fd = dev_fd_; }
+  int Add(const std::string &name, const Creator &creator) {
+    map_.insert(std::pair<std::string, Creator>(name, creator));
 
-  /* Creates an instance of DRMMaster if it doesn't exist and initializes it. Threadsafe.
-   * Input:
-   *   master: Pointer to store a pointer to the instance
-   * Returns:
-   *   -ENODEV if device cannot be opened or initilization fails
-   */
-  static int GetInstance(DRMMaster **master);
-  static void DestroyInstance();
+    return 0;
+  }
+
+  Creator Get(const std::string &name) {
+    typename std::map<std::string, Creator>::iterator it = map_.find(name);
+    if (it != map_.end()) {
+      return it->second;
+    }
+
+    return nullptr;
+  }
 
  private:
-  DRMMaster() {}
-  int Init();
-
-  int dev_fd_ = -1;              // Master fd for DRM
-  static DRMMaster *s_instance;  // Singleton instance
-  static std::mutex s_lock;
+  std::map<std::string, Creator> map_;
 };
 
-}  // namespace drm_utils
+}  // namespace sdm
 
-#endif  // __DRM_MASTER_H__
+#endif  // __FACTORY_H__
